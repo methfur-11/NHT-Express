@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NHT Express | บริการขนส่งมอเตอร์ไซค์กระบะตู้ทึบข้ามจังหวัดทั่วไทย</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM CDN -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Leaflet CSS & JS for Real Map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@19.4.0/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@19.4.0/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <!-- Google Fonts: Prompt -->
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Prompt', sans-serif; }
+        .leaflet-container { width: 100%; height: 100%; border-radius: 0.75rem; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased selection:bg-amber-500 selection:text-white">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // รายชื่อ 77 จังหวัดทั่วไทย
+        const THAI_PROVINCES = [
+            "กรุงเทพมหานคร", "กระบี่", "กาญจนบุรี", "กาฬสินธุ์", "กำแพงเพชร", "ขอนแก่น", 
+            "จันทบุรี", "ฉะเชิงเทรา", "ชลบุรี", "ชัยนาท", "ชัยภูมิ", "ชุมพร", "ตรัง", 
+            "ตราด", "ตาก", "นครนายก", "นครปฐม", "นครพนม", "นครราชสีมา", "นครศรีธรรมราช", 
+            "นครสวรรค์", "นนทบุรี", "นราธิวาส", "น่าน", "บึงกาฬ", "บุรีรัมย์", "ปทุมธานี", 
+            "ประจวบคีรีขันธ์", "ปราจีนบุรี", "ปัตตานี", "พระนครศรีอยุธยา", "พะเยา", "พังงา", 
+            "พัทลุง", "พิจิตร", "พิษณุโลก", "ภูเก็ต", "มหาสารคาม", "มุกดาหาร", "ยะลา", 
+            "ยโสธร", "ระนอง", "ระยอง", "ราชบุรี", "ลพบุรี", "ลำปาง", "ลำพูน", "เลย", 
+            "ศรีสะเกษ", "สกลนคร", "สงขลา", "สตูล", "สมุทรปราการ", "สมุทรสงคราม", "สมุทรสาคร", 
+            "สระแก้ว", "สระบุรี", "สิงห์บุรี", "สุโขทัย", "สุพรรณบุรี", "สุราษฎร์ธานี", 
+            "สุรินทร์", "หนองคาย", "หนองบัวลำภู", "อ่างทอง", "อำนาจเจริญ", "อุดรธานี", 
+            "อุตรดิตถ์", "อุทัยธานี", "อุบลราชธานี", "เชียงราย", "เชียงใหม่", "ตรัง", 
+            "เพชรบุรี", "เพชรบูรณ์", "เลย", "แพร่", "แม่ฮ่องสอน"
+        ];
+
+        function App() {
+            const [currentTab, setCurrentTab] = React.useState('booking');
+            
+            // Form States
+            const [senderName, setSenderName] = React.useState('');
+            const [senderPhone, setSenderPhone] = React.useState('');
+            const [pickupProvince, setPickupProvince] = React.useState('กรุงเทพมหานคร');
+            const [pickupDetail, setPickupDetail] = React.useState('');
+            
+            const [receiverName, setReceiverName] = React.useState('');
+            const [receiverPhone, setReceiverPhone] = React.useState('');
+            const [dropoffProvince, setDropoffProvince] = React.useState('เชียงใหม่');
+            const [dropoffDetail, setDropoffDetail] = React.useState('');
+
+            const [bikeBrand, setBikeBrand] = React.useState('');
+            const [bikeModel, setBikeModel] = React.useState('');
+            const [bikeType, setBikeType] = React.useState('standard');
+            const [extraLuggage, setExtraLuggage] = React.useState(false);
+
+            // Map Modal State
+            const [isMapOpen, setIsMapOpen] = React.useState(false);
+            const [mapTarget, setMapTarget] = React.useState('pickup');
+            const [selectedCoords, setSelectedCoords] = React.useState({ lat: 13.7563, lng: 100.5018 });
+
+            // Orders State (LocalStorage)
+            const [orders, setOrders] = React.useState(() => {
+                const saved = localStorage.getItem('nht_express_orders');
+                if (saved) {
+                    try { return JSON.parse(saved); } catch (e) { return []; }
+                }
+                return [
+                    {
+                        id: 'NHT-698821',
+                        senderName: 'คุณสมชาย ใจดี',
+                        senderPhone: '081-234-5678',
+                        pickupProvince: 'กรุงเทพมหานคร',
+                        pickupDetail: 'ลาดพร้าว ซอย 10',
+                        receiverName: 'คุณสมศักดิ์ รักเรียน',
+                        receiverPhone: '089-876-5432',
+                        dropoffProvince: 'เชียงใหม่',
+                        dropoffDetail: 'นิมมานเหมินท์ ซอย 7',
+                        bikeBrand: 'Yamaha',
+                        bikeModel: 'MT-15',
+                        bikeType: 'standard',
+                        extraLuggage: true,
+                        price: 2200,
+                        distance: 700,
+                        status: 'กำลังขนส่งในตู้ทึบ',
+                        currentStep: 3,
+                        createdAt: new Date().toLocaleString(),
+                        driver: { name: 'พี่ชาญ (คนขับมืออาชีพ)', phone: '085-555-1234', plate: 'ผค 9921 เชียงใหม่' }
+                    }
+                ];
+            });
+
+            const [searchQuery, setSearchQuery] = React.useState('');
+            const [trackedOrder, setTrackedOrder] = React.useState(null);
+
+            React.useEffect(() => {
+                localStorage.setItem('nht_express_orders', JSON.stringify(orders));
+            }, [orders]);
+
+            // Leaflet Map Initialization Effect
+            React.useEffect(() => {
+                if (isMapOpen) {
+                    setTimeout(() => {
+                        const mapContainer = document.getElementById('leaflet-map');
+                        if (mapContainer && !mapContainer._leaflet_id) {
+                            const map = L.map('leaflet-map').setView([13.7563, 100.5018], 6);
+                            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                                attribution: '&copy; OpenStreetMap contributors'
+                            }).addTo(map);
+
+                            let marker = L.marker([13.7563, 100.5018], { draggable: true }).addTo(map);
+
+                            marker.on('dragend', function(e) {
+                                const pos = marker.getLatLng();
+                                setSelectedCoords({ lat: pos.lat, lng: pos.lng });
+                            });
+
+                            map.on('click', function(e) {
+                                marker.setLatLng(e.latlng);
+                                setSelectedCoords({ lat: e.latlng.lat, lng: e.latlng.lng });
+                            });
+                        }
+                    }, 300);
+                }
+            }, [isMapOpen]);
+
+            const calculateEstimate = () => {
+                let basePrice = 1500;
+                let distanceKm = 450;
+                
+                if (pickupProvince !== dropoffProvince) {
+                    if (['เชียงใหม่', 'เชียงราย', 'สงขลา', 'ภูเก็ต', 'นราธิวาส', 'ปัตตานี', 'ยะลา'].includes(dropoffProvince)) {
+                        basePrice = 2800;
+                        distanceKm = 850;
+                    } else if (['ขอนแก่น', 'อุบลราชธานี', 'นครราชสีมา', 'อุดรธานี'].includes(dropoffProvince)) {
+                        basePrice = 1900;
+                        distanceKm = 500;
+                    } else {
+                        basePrice = 1600;
+                        distanceKm = 350;
+                    }
+                } else {
+                    basePrice = 900;
+                    distanceKm = 40;
+                }
+
+                if (bikeType === 'bigbike') basePrice += 600;
+                if (bikeType === 'jumbo') basePrice += 900;
+                if (extraLuggage) basePrice += 300;
+
+                return { price: basePrice, distance: distanceKm };
+            };
+
+            const { price, distance } = calculateEstimate();
+
+            const handleCreateOrder = (e) => {
+                e.preventDefault();
+                if (!senderName || !senderPhone || !receiverName || !receiverPhone || !bikeBrand || !bikeModel) {
+                    alert('กรุณากรอกข้อมูลผู้ส่ง ผู้รับ และรุ่นรถให้ครบถ้วนครับ');
+                    return;
+                }
+
+                const newId = 'NHT-' + Math.floor(100000 + Math.random() * 900000);
+                const newOrder = {
+                    id: newId,
+                    senderName,
+                    senderPhone,
+                    pickupProvince,
+                    pickupDetail: pickupDetail || `พิกัด GPS: ${selectedCoords.lat.toFixed(4)}, ${selectedCoords.lng.toFixed(4)}`,
+                    receiverName,
+                    receiverPhone,
+                    dropoffProvince,
+                    dropoffDetail: dropoffDetail || 'ปลายทางตามพิกัดจังหวัด',
+                    bikeBrand,
+                    bikeModel,
+                    bikeType,
+                    extraLuggage,
+                    price,
+                    distance,
+                    status: 'รอคนขับรับงาน',
+                    currentStep: 1,
+                    createdAt: new Date().toLocaleString(),
+                    driver: { name: 'รอมอบหมายคนขับรถตู้ทึบ', phone: '-', plate: '-' }
+                };
+
+                setOrders([newOrder, ...orders]);
+                alert(`จองคิวขนส่งสำเร็จ! รหัสติดตามงานของคุณคือ: ${newId}`);
+                setTrackedOrder(newOrder);
+                setCurrentTab('tracking');
+            };
+
+            const handleSearchTracking = (e) => {
+                e.preventDefault();
+                const found = orders.find(o => o.id.toLowerCase() === searchQuery.trim().toLowerCase());
+                if (found) {
+                    setTrackedOrder(found);
+                } else {
+                    alert('ไม่พบหมายเลขใบงานนี้ กรุณาตรวจสอบรหัสใหม่อีกครั้ง');
+                    setTrackedOrder(null);
+                }
+            };
+
+            const updateOrderStatus = (orderId, newStep) => {
+                const statusMap = {
+                    1: 'รอคนขับรับงาน',
+                    2: 'กำลังเดินทางไปรับรถ',
+                    3: 'กำลังขนส่งในตู้ทึบ',
+                    4: 'ส่งมอบรถเรียบร้อยแล้ว'
+                };
+
+                setOrders(orders.map(o => {
+                    if (o.id === orderId) {
+                        const updated = { 
+                            ...o, 
+                            currentStep: newStep, 
+                            status: statusMap[newStep],
+                            driver: newStep >= 2 ? { name: 'พี่สมบัติ (คนขับรถตู้ทึบมืออาชีพ)', phone: '089-111-2233', plate: 'ผค 7892 กรุงเทพฯ' } : o.driver
+                        };
+                        if (trackedOrder && trackedOrder.id === orderId) {
+                            setTrackedOrder(updated);
+                        }
+                        return updated;
+                    }
+                    return o;
+                }));
+            };
+
+            return (
+                <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col justify-between">
+                    <div>
+                        {/* Header Navbar */}
+                        <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
+                            <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="bg-amber-500 text-white p-3 rounded-2xl font-black text-xl shadow-md shadow-amber-500/20 flex items-center justify-center">
+                                        🚚
+                                    </div>
+                                    <div>
+                                        <h1 className="text-xl font-bold tracking-tight text-slate-900">
+                                            NHT Express <span className="text-amber-600 text-sm font-medium">| ขนส่งมอเตอร์ไซค์กระบะตู้ทึบข้ามจังหวัด</span>
+                                        </h1>
+                                        <p className="text-xs text-slate-500">บริการขนรถมอเตอร์ไซค์ด้วยกระบะตู้ทึบมิดชิด ป้องกันฝน แดด และรอยขีดข่วน 100% ทั่วไทย</p>
+                                    </div>
+                                </div>
+
+                                <nav className="flex items-center gap-2 bg-slate-100 p-1.5 rounded-xl border border-slate-200">
+                                    <button 
+                                        onClick={() => setCurrentTab('booking')}
+                                        className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${currentTab === 'booking' ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20' : 'text-slate-600 hover:text-slate-900'}`}
+                                    >
+                                        📝 จองคิวขนส่ง
+                                    </button>
+                                    <button 
+                                        onClick={() => setCurrentTab('tracking')}
+                                        className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${currentTab === 'tracking' ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20' : 'text-slate-600 hover:text-slate-900'}`}
+                                    >
+                                        🔍 ติดตามสถานะ
+                                    </button>
+                                    <button 
+                                        onClick={() => setCurrentTab('dashboard')}
+                                        className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${currentTab === 'dashboard' ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20' : 'text-slate-600 hover:text-slate-900'}`}
+                                    >
+                                        📊 จัดการงาน ({orders.length})
+                                    </button>
+                                </nav>
+                            </div>
+                        </header>
+
+                        {/* Main Container */}
+                        <main className="max-w-7xl mx-auto px-4 py-8">
+                            {currentTab === 'booking' && (
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                                    <div className="lg:col-span-2 bg-white rounded-3xl p-6 md:p-8 border border-slate-200 shadow-xl shadow-slate-200/50">
+                                        <h2 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
+                                            <span className="text-amber-500">📋</span> กรอกข้อมูลการขนส่งรถมอเตอร์ไซค์
+                                        </h2>
+
+                                        <form onSubmit={handleCreateOrder} className="space-y-6">
+                                            {/* 1. Sender */}
+                                            <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200">
+                                                <h3 className="text-sm font-bold text-amber-600 mb-3 uppercase tracking-wider">1. ข้อมูลผู้ส่งและจุดรับรถต้นทาง</h3>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+                                                    <div>
+                                                        <label className="block text-xs font-medium text-slate-600 mb-1">ชื่อ-นามสกุล ผู้ส่ง</label>
+                                                        <input 
+                                                            type="text" 
+                                                            value={senderName} 
+                                                            onChange={e => setSenderName(e.target.value)}
+                                                            placeholder="เช่น คุณสมชาย ใจดี" 
+                                                            className="w-full bg-white border border-slate-300 rounded-xl p-3 text-sm text-slate-900 focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                                                            required
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-medium text-slate-600 mb-1">เบอร์โทรศัพท์ผู้ส่ง</label>
+                                                        <input 
+                                                            type="tel" 
+                                                            value={senderPhone} 
+                                                            onChange={e => setSenderPhone(e.target.value)}
+                                                            placeholder="081-234-5678" 
+                                                            className="w-full bg-white border border-slate-300 rounded-xl p-3 text-sm text-slate-900 focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                                                            required
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                    <div>
+                                                        <label className="block text-xs font-medium text-slate-600 mb-1">จังหวัดต้นทาง</label>
+                                                        <select 
+                                                            value={pickupProvince} 
+                                                            onChange={e => setPickupProvince(e.target.value)}
+                                                            className="w-full bg-white border border-slate-300 rounded-xl p-3 text-sm text-slate-900 focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                                                        >
+                                                            {THAI_PROVINCES.map(prov => <option key={prov} value={prov}>{prov}</option>)}
+                                                        </select>
+                                                    </div>
+                                                    <div className="md:col-span-2 flex items-end gap-2">
+                                                        <div className="flex-1">
+                                                            <label className="block text-xs font-medium text-slate-600 mb-1">รายละเอียดสถานที่รับ (ซอย, ถนน, จุดสังเกต)</label>
+                                                            <input 
+                                                                type="text" 
+                                                                value={pickupDetail} 
+                                                                onChange={e => setPickupDetail(e.target.value)}
+                                                                placeholder="เช่น หน้าตึก A ซอยลาดพร้าว 10" 
+                                                                className="w-full bg-white border border-slate-300 rounded-xl p-3 text-sm text-slate-900 focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                                                            />
+                                                        </div>
+                                                        <button 
+                                                            type="button"
+                                                            onClick={() => { setMapTarget('pickup'); setIsMapOpen(true); }}
+                                                            className="bg-amber-50 hover:bg-amber-100 text-amber-700 px-4 py-3 rounded-xl text-xs font-bold border border-amber-300 flex items-center gap-1 shrink-0 transition-all shadow-sm"
+                                                        >
+                                                            📍 ปักหมุดแผนที่
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* 2. Receiver */}
+                                            <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200">
+                                                <h3 className="text-sm font-bold text-amber-600 mb-3 uppercase tracking-wider">2. ข้อมูลผู้รับและจุดส่งปลายทาง</h3>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+                                                    <div>
+                                                        <label className="block text-xs font-medium text-slate-600 mb-1">ชื่อ-นามสกุล ผู้รับ</label>
+                                                        <input 
+                                                            type="text" 
+                                                            value={receiverName} 
+                                                            onChange={e => setReceiverName(e.target.value)}
+                                                            placeholder="เช่น คุณสมศักดิ์ รักเรียน" 
+                                                            className="w-full bg-white border border-slate-300 rounded-xl p-3 text-sm text-slate-900 focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                                                            required
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-medium text-slate-600 mb-1">เบอร์โทรศัพท์ผู้รับ</label>
+                                                        <input 
+                                                            type="tel" 
+                                                            value={receiverPhone} 
+                                                            onChange={e => setReceiverPhone(e.target.value)}
+                                                            placeholder="089-876-5432" 
+                                                            className="w-full bg-white border border-slate-300 rounded-xl p-3 text-sm text-slate-900 focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                                                            required
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                    <div>
+                                                        <label className="block text-xs font-medium text-slate-600 mb-1">จังหวัดปลายทาง</label>
+                                                        <select 
+                                                            value={dropoffProvince} 
+                                                            onChange={e => setDropoffProvince(e.target.value)}
+                                                            className="w-full bg-white border border-slate-300 rounded-xl p-3 text-sm text-slate-900 focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                                                        >
+                                                            {THAI_PROVINCES.map(prov => <option key={prov} value={prov}>{prov}</option>)}
+                                                        </select>
+                                                    </div>
+                                                    <div className="md:col-span-2 flex items-end gap-2">
+                                                        <div className="flex-1">
+                                                            <label className="block text-xs font-medium text-slate-600 mb-1">รายละเอียดสถานที่ส่งปลายทาง</label>
+                                                            <input 
+                                                                type="text" 
+                                                                value={dropoffDetail} 
+                                                                onChange={e => setDropoffDetail(e.target.value)}
+                                                                placeholder="เช่น นิมมานเหมินท์ ซอย 7" 
+                                                                className="w-full bg-white border border-slate-300 rounded-xl p-3 text-sm text-slate-900 focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                                                            />
+                                                        </div>
+                                                        <button 
+                                                            type="button"
+                                                            onClick={() => { setMapTarget('dropoff'); setIsMapOpen(true); }}
+                                                            className="bg-amber-50 hover:bg-amber-100 text-amber-700 px-4 py-3 rounded-xl text-xs font-bold border border-amber-300 flex items-center gap-1 shrink-0 transition-all shadow-sm"
+                                                        >
+                                                            📍 ปักหมุดแผนที่
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* 3. Motorcycle Spec */}
+                                            <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200">
+                                                <h3 className="text-sm font-bold text-amber-600 mb-3 uppercase tracking-wider">3. ข้อมูลรถมอเตอร์ไซค์และรูปแบบบริการ</h3>
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                                                    <div>
+                                                        <label className="block text-xs font-medium text-slate-600 mb-1">ยี่ห้อรถ</label>
+                                                        <input 
+                                                            type="text" 
+                                                            value={bikeBrand} 
+                                                            onChange={e => setBikeBrand(e.target.value)}
+                                                            placeholder="เช่น Honda, Yamaha, Vespa" 
+                                                            className="w-full bg-white border border-slate-300 rounded-xl p-3 text-sm text-slate-900 focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                                                            required
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-medium text-slate-600 mb-1">รุ่นรถ / ขนาด CC</label>
+                                                        <input 
+                                                            type="text" 
+                                                            value={bikeModel} 
+                                                            onChange={e => setBikeModel(e.target.value)}
+                                                            placeholder="เช่น PCX 160, Forza 350" 
+                                                            className="w-full bg-white border border-slate-300 rounded-xl p-3 text-sm text-slate-900 focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                                                            required
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-medium text-slate-600 mb-1">ประเภทการล็อกในตู้ทึบ</label>
+                                                        <select 
+                                                            value={bikeType} 
+                                                            onChange={e => setBikeType(e.target.value)}
+                                                            className="w-full bg-white border border-slate-300 rounded-xl p-3 text-sm text-slate-900 focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                                                        >
+                                                            <option value="standard">รถครอบครัว / ออโตเมติกทั่วไป (Wave, Scoopy)</option>
+                                                            <option value="bigbike">Big Bike / ฟอร์ซ่า / เอ็กซ์แม็กซ์ (+600)</option>
+                                                            <option value="jumbo">รถสามล้อ / ชอปเปอร์ขนาดใหญ่ (+900)</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-3 pt-3 border-t border-slate-200">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        id="luggage" 
+                                                        checked={extraLuggage} 
+                                                        onChange={e => setExtraLuggage(e.target.checked)}
+                                                        className="w-4 h-4 accent-amber-500 rounded border-slate-300"
+                                                    />
+                                                    <label htmlFor="luggage" className="text-sm text-slate-700 cursor-pointer font-medium">
+                                                        มีกระเป๋าเดินทางหรือสัมภาระเพิ่มเติมใส่ท้ายรถในตู้ทึบ (+300 บาท)
+                                                    </label>
+                                                </div>
+                                            </div>
+
+                                            <button 
+                                                type="submit"
+                                                className="w-full bg-gradient-to-r from-amber-500 to-amber-600 text-white font-bold py-4 rounded-2xl hover:from-amber-600 hover:to-amber-700 transition-all shadow-lg shadow-amber-500/30 text-base"
+                                            >
+                                                ยืนยันการจองคิวขนส่งรถมอเตอร์ไซค์
+                                            </button>
+                                        </form>
+                                    </div>
+
+                                    {/* Sidebar Summary */}
+                                    <div className="space-y-6">
+                                        <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xl shadow-slate-200/50 sticky top-24">
+                                            <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+                                                <span className="text-amber-500">💰</span> สรุปค่าบริการขนส่ง
+                                            </h3>
+
+                                            <div className="space-y-3 text-sm border-b border-slate-200 pb-4 mb-4">
+                                                <div className="flex justify-between text-slate-600">
+                                                    <span>เส้นทาง:</span>
+                                                    <span className="font-semibold text-slate-900">{pickupProvince} ➔ {dropoffProvince}</span>
+                                                </div>
+                                                <div className="flex justify-between text-slate-600">
+                                                    <span>ระยะทางประมาณ:</span>
+                                                    <span className="font-semibold text-slate-900">{distance} กิโลเมตร</span>
+                                                </div>
+                                                <div className="flex justify-between text-slate-600">
+                                                    <span>รูปแบบการขนส่ง:</span>
+                                                    <span className="font-semibold text-amber-600">
+                                                        {bikeType === 'standard' && 'ตู้ทึบ (มาตรฐาน)'}
+                                                        {bikeType === 'bigbike' && 'ตู้ทึบ (Big Bike)'}
+                                                        {bikeType === 'jumbo' && 'ตู้ทึบ (Jumbo)'}
+                                                    </span>
+                                                </div>
+                                                {extraLuggage && (
+                                                    <div className="flex justify-between text-slate-600">
+                                                        <span>สัมภาระเพิ่มเติม:</span>
+                                                        <span className="font-semibold text-amber-600">+300 บาท</span>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            <div className="flex items-center justify-between mb-6">
+                                                <span className="text-base font-semibold text-slate-900">ยอดรวมทั้งสิ้น:</span>
+                                                <div className="text-right">
+                                                    <span className="text-3xl font-extrabold text-amber-600">฿{price.toLocaleString()}</span>
+                                                    <p className="text-xs text-slate-400">รวมประกันภัยอุบัติเหตุระหว่างขนส่ง</p>
+                                                </div>
+                                            </div>
+
+                                            <div className="bg-amber-50 p-4 rounded-2xl border border-amber-200 text-xs text-slate-700 space-y-2">
+                                                <p className="font-bold text-amber-800">🛡️ มาตรฐานความปลอดภัย NHT Express:</p>
+                                                <ul className="list-disc list-inside space-y-1 text-slate-600">
+                                                    <li>รถกระบะตู้ทึบมิดชิด ป้องกันแดด ฝน 100%</li>
+                                                    <li>ติดตั้งฟكشنล็อกล้อมาตรฐานวิศวกรรม</li>
+                                                    <li>มีประกันสินค้าเสียหายระหว่างขนส่งทุกคัน</li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {currentTab === 'tracking' && (
+                                <div className="max-w-3xl mx-auto space-y-8">
+                                    <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xl shadow-slate-200/50">
+                                        <h2 className="text-xl font-bold text-slate-900 mb-4">🔍 ติดตามสถานะขนส่งรถมอเตอร์ไซค์</h2>
+                                        <form onSubmit={handleSearchTracking} className="flex gap-3">
+                                            <input 
+                                                type="text" 
+                                                value={searchQuery} 
+                                                onChange={e => setSearchQuery(e.target.value)} 
+                                                placeholder="พิมพ์รหัสใบงาน เช่น NHT-698821" 
+                                                className="flex-1 bg-slate-50 border border-slate-300 rounded-2xl px-4 py-3 text-sm text-slate-900 focus:outline-none focus:border-amber-500 uppercase font-mono tracking-wider"
+                                                required
+                                            />
+                                            <button type="submit" className="bg-amber-500 hover:bg-amber-600 text-white font-bold px-6 py-3 rounded-2xl transition-all shadow-md shadow-amber-500/20">
+                                                ค้นหา
+                                            </button>
+                                        </form>
+                                    </div>
+
+                                    {trackedOrder ? (
+                                        <div className="bg-white rounded-3xl p-6 md:p-8 border border-slate-200 shadow-xl shadow-slate-200/50 space-y-6">
+                                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-6">
+                                                <div>
+                                                    <span className="text-xs text-amber-700 font-mono bg-amber-100 px-3 py-1 rounded-full border border-amber-200">
+                                                        รหัสใบงาน: {trackedOrder.id}
+                                                    </span>
+                                                    <h3 className="text-2xl font-bold text-slate-900 mt-2">
+                                                        {trackedOrder.bikeBrand} {trackedOrder.bikeModel}
+                                                    </h3>
+                                                    <p className="text-xs text-slate-500">สร้างเมื่อ: {trackedOrder.createdAt}</p>
+                                                </div>
+                                                <div className="text-right">
+                                                    <span className="text-lg font-bold text-amber-600">฿{trackedOrder.price.toLocaleString()}</span>
+                                                    <p className="text-xs text-slate-500">สถานะ: <span className="text-amber-600 font-bold">{trackedOrder.status}</span></p>
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <h4 className="text-sm font-bold text-slate-700 mb-4">ขั้นตอนการขนส่งข้ามจังหวัด</h4>
+                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                                    {[
+                                                        { step: 1, title: 'รอคนขับรับงาน', icon: '📝' },
+                                                        { step: 2, title: 'กำลังไปรับรถ', icon: '🛵' },
+                                                        { step: 3, title: 'ขนส่งในตู้ทึบ', icon: '🚚' },
+                                                        { step: 4, title: 'ส่งมอบสำเร็จ', icon: '✅' }
+                                                    ].map(item => (
+                                                        <div 
+                                                            key={item.step} 
+                                                            className={`p-4 rounded-2xl border text-center transition-all ${trackedOrder.currentStep >= item.step ? 'bg-amber-50 border-amber-300 text-amber-900 shadow-sm' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
+                                                        >
+                                                            <div className="text-2xl mb-1">{item.icon}</div>
+                                                            <div className="text-xs font-bold">{item.title}</div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-slate-200">
+                                                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                                                    <h5 className="text-xs font-bold text-amber-600 uppercase mb-2">📍 ต้นทาง ({trackedOrder.pickupProvince})</h5>
+                                                    <p className="text-sm text-slate-900 font-medium">{trackedOrder.senderName} ({trackedOrder.senderPhone})</p>
+                                                    <p className="text-xs text-slate-500 mt-1">{trackedOrder.pickupDetail || 'ไม่ระบุรายละเอียดเพิ่มเติม'}</p>
+                                                </div>
+                                                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                                                    <h5 className="text-xs font-bold text-amber-600 uppercase mb-2">🎯 ปลายทาง ({trackedOrder.dropoffProvince})</h5>
+                                                    <p className="text-sm text-slate-900 font-medium">{trackedOrder.receiverName} ({trackedOrder.receiverPhone})</p>
+                                                    <p className="text-xs text-slate-500 mt-1">{trackedOrder.dropoffDetail || 'ไม่ระบุรายละเอียดเพิ่มเติม'}</p>
+                                                </div>
+                                            </div>
+
+                                            <div className="bg-slate-900 text-white p-5 rounded-2xl flex items-center justify-between shadow-lg">
+                                                <div>
+                                                    <span className="text-xs text-slate-400">คนขับรถกระบะตู้ทึบผู้ดูแล</span>
+                                                    <p className="text-sm font-bold text-white">{trackedOrder.driver.name}</p>
+                                                    <p className="text-xs text-amber-400">ทะเบียนรถ: {trackedOrder.driver.plate}</p>
+                                                </div>
+                                                <a 
+                                                    href={`tel:${trackedOrder.driver.phone}`} 
+                                                    className="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow"
+                                                >
+                                                    📞 โทรหาคนขับ
+                                                </a>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="text-center py-12 bg-white rounded-3xl border border-slate-200 shadow-sm">
+                                            <p className="text-slate-500 text-sm">กรุณากรอกรหัสใบงานเพื่อตรวจสอบข้อมูลการขนส่ง</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {currentTab === 'dashboard' && (
+                                <div className="space-y-6">
+                                    <div className="flex items-center justify-between">
+                                        <h2 className="text-xl font-bold text-slate-900">📊 จัดการใบงานขนส่งทั้งหมดในระบบ</h2>
+                                        <span className="text-xs bg-white border border-slate-200 px-3 py-1.5 rounded-xl text-slate-600 shadow-sm">
+                                            ข้อมูลถูกบันทึกผ่าน LocalStorage (จำลองฐานข้อมูล)
+                                        </span>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 gap-4">
+                                        {orders.map(order => (
+                                            <div key={order.id} className="bg-white border border-slate-200 rounded-3xl p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-md shadow-slate-200/50">
+                                                <div className="space-y-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-xs font-mono bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded-full border border-amber-200 font-bold">
+                                                            {order.id}
+                                                        </span>
+                                                        <span className="text-xs bg-slate-100 text-slate-700 px-2.5 py-0.5 rounded-full border border-slate-200 font-medium">
+                                                            {order.status}
+                                                        </span>
+                                                    </div>
+                                                    <h3 className="text-lg font-bold text-slate-900 mt-1">
+                                                        {order.bikeBrand} {order.bikeModel} <span className="text-slate-400 font-normal text-sm">({order.pickupProvince} ➔ {order.dropoffProvince})</span>
+                                                    </h3>
+                                                    <p className="text-xs text-slate-500">
+                                                        ผู้ส่ง: {order.senderName} | ผู้รับ: {order.receiverName} | ราคา: <span className="text-amber-600 font-bold">฿{order.price.toLocaleString()}</span>
+                                                    </p>
+                                                </div>
+
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <button 
+                                                        onClick={() => updateOrderStatus(order.id, Math.min(order.currentStep + 1, 4))}
+                                                        className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-300 transition-all"
+                                                    >
+                                                        ⏩ เลื่อนสถานะ
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => { setTrackedOrder(order); setCurrentTab('tracking'); }}
+                                                        className="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md shadow-amber-500/20"
+                                                    >
+                                                        ดูรายละเอียด
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </main>
+                    </div>
+
+                    {/* Footer */}
+                    <footer className="bg-white border-t border-slate-200 mt-12 py-6 text-center text-xs text-slate-500">
+                        <p>© 2026 NHT Express Co., Ltd. All rights reserved. บริการขนส่งมอเตอร์ไซค์กระบะตู้ทึบข้ามจังหวัดอันดับ 1 ของไทย</p>
+                    </footer>
+
+                    {/* REAL LEAFLET MAP MODAL */}
+                    {isMapOpen && (
+                        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+                            <div className="bg-white border border-slate-200 rounded-3xl max-w-2xl w-full p-6 space-y-4 shadow-2xl">
+                                <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                                    <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                                        <span className="text-amber-500">📍</span> ปักหมุดแผนที่จริง ({mapTarget === 'pickup' ? 'จุดรับรถต้นทาง' : 'จุดส่งปลายทาง'})
+                                    </h3>
+                                    <button onClick={() => setIsMapOpen(false)} className="text-slate-400 hover:text-slate-700 font-bold text-lg">✕</button>
+                                </div>
+
+                                <div className="rounded-2xl h-80 border border-slate-200 overflow-hidden relative">
+                                    <div id="leaflet-map" style={{ width: '100%', height: '100%' }}></div>
+                                </div>
+
+                                <div className="flex items-center justify-between text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                                    <span>พิกัดที่เลือก: <strong className="text-slate-900 font-mono">{selectedCoords.lat.toFixed(5)}, {selectedCoords.lng.toFixed(5)}</strong></span>
+                                    <span className="text-amber-600 font-medium">💡 เคล็ดลับ: สามารถคลิกหรือลากหมุดบนแผนที่เพื่อเปลี่ยนตำแหน่งได้</span>
+                                </div>
+
+                                <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+                                    <button 
+                                        type="button" 
+                                        onClick={() => setIsMapOpen(false)}
+                                        className="bg-slate-200 text-slate-700 px-5 py-2.5 rounded-xl text-xs font-bold hover:bg-slate-300 transition-all"
+                                    >
+                                        ยกเลิก
+                                    </button>
+                                    <button 
+                                        type="button" 
+                                        onClick={() => {
+                                            const coordText = `พิกัด GPS: ${selectedCoords.lat.toFixed(4)}, ${selectedCoords.lng.toFixed(4)}`;
+                                            if (mapTarget === 'pickup') {
+                                                setPickupDetail(coordText);
+                                            } else {
+                                                setDropoffDetail(coordText);
+                                            }
+                                            setIsMapOpen(false);
+                                        }}
+                                        className="bg-amber-500 hover:bg-amber-600 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md shadow-amber-500/20"
+                                    >
+                                        ยืนยันตำแหน่งนี้
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
